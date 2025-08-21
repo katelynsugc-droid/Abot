@@ -1,0 +1,76 @@
+import os
+import discord
+from discord.ext import commands, tasks
+import aiohttp
+import asyncio
+
+TOKEN = os.getenv("DISCORD_TOKEN")
+CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
+PLACE_ID = 125760703264498  # from your Roblox game URL
+ROPROXY = "https://apis.roproxy.com"
+
+intents = discord.Intents.default()
+bot = commands.Bot(command_prefix="!", intents=intents)
+
+active = False
+
+async def get_universe_id(place_id):
+    url = f"{ROPROXY}/universes/v1/places/{place_id}/universe"
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as resp:
+            if resp.status == 200:
+                data = await resp.json()
+                return data.get("universeId")
+    return None
+
+async def get_game_data(universe_id):
+    url = f"https://games.roblox.com/v1/games?universeIds={universe_id}"
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as resp:
+            if resp.status == 200:
+                data = await resp.json()
+                if data.get("data"):
+                    game = data["data"][0]
+                    return game.get("playing"), game.get("visits")
+    return None, None
+
+@bot.command()
+async def startms(ctx):
+    global active
+    if active:
+        await ctx.send("Milestone bot already running.")
+        return
+    active = True
+    await ctx.send("milestone bot started -pawincee")
+    
+    universe_id = await get_universe_id(PLACE_ID)
+    if not universe_id:
+        await ctx.send("Failed to fetch universe ID; cannot proceed.")
+        active = False
+        return
+
+    for _ in range(3):
+        if not active:
+            break
+        players, visits = await get_game_data(universe_id)
+        if players is not None:
+            milestone = ((visits // 100) + 1) * 100
+            msg = (
+                "--------------------------------------------------\n"
+                f"👤🎮 Active players: {players}\n"
+                "--------------------------------------------------\n"
+                f"👥 Visits: {visits}\n"
+                f"🎯 Next milestone: {visits}/{milestone}\n"
+                "--------------------------------------------------"
+            )
+            await ctx.send(msg)
+        await asyncio.sleep(60)
+    active = False
+
+@bot.command()
+async def stopms(ctx):
+    global active
+    active = False
+    await ctx.send("milestone bot stopped")
+
+bot.run(TOKEN)
